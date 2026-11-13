@@ -1,0 +1,11 @@
+{
+  "lab_mode": "hardened",
+  "enforce_admin_auth": true,
+  "rate_limit_enabled": true,
+  "rate_limit_window_sec": 60,
+  "rate_limit_max_requests": 10,
+  "rate_limit_cooldown_sec": 600,
+  "otp_enabled": true,
+  "deception_enabled": true,
+  "cloudflare_mode": true
+}

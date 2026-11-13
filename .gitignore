@@ -1,0 +1,18 @@
+# Logs & runtime artifacts
+*.log
+fashion-shop/quantri/logs/
+fashion-shop/database/security_logs/
+security_logs/
+logs/
+
+# Cache & OS files
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Build / temporary files
+.ag_buf.txt
+~$*.docx
+~$*.pptx

@@ -1,0 +1,84 @@
+{
+  "timestamp": "2026-11-13T13:12:44Z",
+  "passed_count": 10,
+  "total_count": 10,
+  "all_passed": true,
+  "results": [
+    {
+      "test": "Admin Auth Guard blocks unauthenticated access (Hardened)",
+      "passed": true,
+      "status": 302,
+      "location": "/shopweb/quantri/admin_login.php?auth_required=1"
+    },
+    {
+      "test": "Hardened Admin Login + Step-up 6-digit OTP Flow",
+      "passed": true,
+      "otp_prompted": true,
+      "otp_issued": true,
+      "dashboard_reached": true
+    },
+    {
+      "test": "Admin Security Dashboard Sandbox & Deceptive 200 Preview",
+      "passed": true,
+      "dashboard_status": 200,
+      "sandbox_decoy_ok": true
+    },
+    {
+      "test": "Layer 3 Deceptive HTTP 200 OK Neutralization (CF-Connecting-IP)",
+      "passed": true,
+      "status": 200,
+      "decoy_header": true,
+      "elapsed_sec": 0.0647
+    },
+    {
+      "test": "Layer 2 Sliding-Window Rate Limit (10 req/60s -> 600s block)",
+      "passed": true,
+      "statuses": [
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        200,
+        429
+      ],
+      "retry_after": 600
+    },
+    {
+      "test": "Vulnerable Lab Mode (Admin Unauthenticated + Unparameterized Search Demo)",
+      "passed": true,
+      "status": 200
+    },
+    {
+      "test": "Storefront Availability & Hardened Parameter/Decoy Protection (index + product_detail)",
+      "passed": true,
+      "home_status": 200,
+      "product_detail_status": 200,
+      "probe_header": "Deceptive-Decoy-Active"
+    },
+    {
+      "test": "Admin Login Vulnerable Lab Demonstration Flow",
+      "passed": true,
+      "status": 302
+    },
+    {
+      "test": "Vulnerable User Login -> Admin Privilege Escalation & Storefront Search Lab",
+      "passed": true,
+      "login_status": 302,
+      "redirect_location": "/shopweb/quantri/index.php",
+      "search_status": 200
+    },
+    {
+      "test": "Hardened User Portal (Signed Cookie, Role Separation & Storefront Search Defense)",
+      "passed": true,
+      "cookie_blocked": true,
+      "admin_portal_blocked": true,
+      "search_ok": 200,
+      "search_decoy_header": "Deceptive-Decoy-Active"
+    }
+  ]
+}

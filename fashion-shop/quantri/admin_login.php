@@ -64,7 +64,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
                     exit;
                 }
-                header('Location: /shopweb/quantri/security_dashboard.php?demo_login=vulnerable');
+                header('Location: /shopweb/quantri/index.php');
                 exit;
             } else {
                 $debugSqlError = $conn->error ?: 'Không tìm thấy tài khoản quản trị phù hợp.';

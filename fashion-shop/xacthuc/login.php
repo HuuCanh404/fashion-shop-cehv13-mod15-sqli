@@ -141,7 +141,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         SecurityDefense::getClientIp(),
                         "USER_PORTAL_ADMIN_BLOCKED: Chặn đăng nhập quyền Admin '{$user['username']}' qua cổng khách hàng."
                     );
-                    $error = "<div class='alert alert-warning text-center'>Tài khoản Quản trị không được phép đăng nhập tại cổng Khách hàng. Vui lòng dùng <a href='/shopweb/quantri/admin_login.php'><strong>Cổng Admin riêng (+ xác minh OTP)</strong></a>.</div>";
+                    $error = "<div class='alert alert-warning text-center'>Tài khoản Quản trị không được phép đăng nhập tại cổng Khách hàng. Vui lòng dùng <strong>Cổng Admin riêng (+ xác minh OTP)</strong>.</div>";
                 } else {
                     session_regenerate_id(true);
                     $_SESSION['user_id'] = $user['id'];
@@ -230,7 +230,6 @@ $conn->close();
             <div class="link-group">
                 <a href="/shopweb/xacthuc/recover.php">Quên mật khẩu?</a>
                 <a href="/shopweb/xacthuc/register.php">Tạo tài khoản mới!</a>
-                <a href="/shopweb/quantri/admin_login.php">Cổng Quản trị Admin</a>
             </div>
         </form>
     </section>

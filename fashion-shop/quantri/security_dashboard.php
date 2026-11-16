@@ -1,7 +1,23 @@
 <?php
 define('SECURITY_DASHBOARD_CONTEXT', true);
-require_once __DIR__ . '/includes/header.php';
+require_once __DIR__ . '/includes/auth_guard.php';
 require_once __DIR__ . '/../database/dbhelper.php';
+
+if (isset($_GET['sys_export']) && in_array(strtolower((string)$_GET['sys_export']), ['sql', 'csv', 'json'], true)) {
+    SecurityDefense::emitDecoyExport(strtolower((string)$_GET['sys_export']));
+    exit;
+}
+if (isset($_GET['preview_decoy'])) {
+    header("Content-Type: text/html; charset=UTF-8");
+    header("X-Protection-System: Deceptive-Decoy-Active");
+    echo SecurityDefense::generateDecoyHtml(
+        "' UNION SELECT id,username,password,role FROM users -- ",
+        '/shopweb/fontend/search_results.php'
+    );
+    exit;
+}
+
+require_once __DIR__ . '/includes/header.php';
 
 if (empty($_SESSION['sec_csrf'])) {
     $_SESSION['sec_csrf'] = bin2hex(random_bytes(16));
@@ -21,15 +37,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $action = $_POST['action'] ?? '';
 
         if ($action === 'save_config') {
+            $newLabMode = ($_POST['lab_mode'] ?? 'hardened') === 'vulnerable' ? 'vulnerable' : 'hardened';
             $newCfg = [
-                'lab_mode' => ($_POST['lab_mode'] ?? 'hardened') === 'vulnerable' ? 'vulnerable' : 'hardened',
+                'lab_mode' => $newLabMode,
                 'enforce_admin_auth' => isset($_POST['enforce_admin_auth']),
                 'rate_limit_enabled' => isset($_POST['rate_limit_enabled']),
                 'rate_limit_window_sec' => (int)($_POST['rate_limit_window_sec'] ?? 60),
-                'rate_limit_max_requests' => (int)($_POST['rate_limit_max_requests'] ?? 10),
+                'rate_limit_max_requests' => (int)($_POST['rate_limit_max_requests'] ?? 200),
                 'rate_limit_cooldown_sec' => (int)($_POST['rate_limit_cooldown_sec'] ?? 600),
                 'otp_enabled' => isset($_POST['otp_enabled']),
-                'deception_enabled' => isset($_POST['deception_enabled']),
+                'deception_enabled' => ($newLabMode === 'hardened') && isset($_POST['deception_enabled']),
                 'cloudflare_mode' => isset($_POST['cloudflare_mode'])
             ];
             SecurityDefense::saveConfig($newCfg);
@@ -50,7 +67,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'deception_enabled' => false,
                 'cloudflare_mode' => true,
                 'rate_limit_window_sec' => 60,
-                'rate_limit_max_requests' => 10,
+                'rate_limit_max_requests' => 200,
                 'rate_limit_cooldown_sec' => 600
             ]);
             SecurityDefense::logSecurityIncident(SecurityDefense::getClientIp(), 'DEMO_MODE: Chuyển hệ thống sang trạng thái VULNERABLE để minh họa.');
@@ -58,8 +75,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $feedbackType = 'warning';
         } elseif ($action === 'preset_hardened') {
             SecurityDefense::saveConfig(SecurityDefense::defaultConfig());
-            SecurityDefense::logSecurityIncident(SecurityDefense::getClientIp(), 'DEMO_MODE: Kích hoạt đầy đủ phòng thủ 4 lớp (10 req/60s -> chặn 600s, OTP, HTTP 200 Decoy).');
-            $feedbackMsg = 'Đã kích hoạt chuẩn Phòng thủ 4 lớp (10 req/1 phút -> chặn 10 phút, OTP, Nghi binh HTTP 200 OK).';
+            SecurityDefense::logSecurityIncident(SecurityDefense::getClientIp(), 'DEMO_MODE: Kích hoạt đầy đủ phòng thủ 4 lớp (200 req/60s -> chặn 600s, OTP, HTTP 200 Decoy).');
+            $feedbackMsg = 'Đã kích hoạt chuẩn Phòng thủ 4 lớp (200 req/1 phút -> chặn 10 phút, OTP, Nghi binh HTTP 200 OK).';
             $feedbackType = 'success';
         } elseif ($action === 'unblock_ip') {
             $ipTarget = trim($_POST['ip_target'] ?? '');
@@ -112,15 +129,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         SecurityDefense::getClientIp(),
                         "SQLI_DECEPTION (Admin Sandbox): Phát hiện mẫu nghi ngờ ({$matched}) -> Trả phản hồi giả HTTP 200 OK."
                     );
+                    $decoyDs = SecurityDecoyTemplates::getDataset();
+                    $decoyPreviewRows = array_slice($decoyDs['users'], 0, 5);
                     $sandboxOutput = [
                         'mode' => 'hardened',
                         'layer' => 'Lớp 3: Nghi binh HTTP 200 OK (Không chạm tới CSDL thật)',
                         'sql' => 'BỊ CHẶN TẠI TẦNG KIỂM SOÁT TRƯỚC KHI TRUY VẤN',
                         'error' => '',
-                        'rows' => [
-                            ['id' => 101, 'username' => 'sample_guest_1', 'email' => 'guest1@demo.local', 'role' => 'user'],
-                            ['id' => 102, 'username' => 'sample_guest_2', 'email' => 'guest2@demo.local', 'role' => 'user']
-                        ],
+                        'rows' => $decoyPreviewRows,
                         'decoy' => true,
                         'matched_pattern' => $matched
                     ];
@@ -155,7 +171,7 @@ $isVuln = ($cfg['lab_mode'] === 'vulnerable');
     <div class="dashboard-header d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
         <div>
             <h2 class="dashboard-title mb-1"><i class="fas fa-shield-alt me-2"></i>Trung tâm Quản lý An ninh & Demo Module 15</h2>
-            <p class="dashboard-subtitle mb-0">Giám sát SQL Injection, giới hạn tần suất (10 req/1 phút), xác minh OTP, nghi binh HTTP 200 OK & mô hình Cloudflare</p>
+            <p class="dashboard-subtitle mb-0">Giám sát SQL Injection, giới hạn tần suất (200 req/1 phút), xác minh OTP, nghi binh HTTP 200 OK & mô hình Cloudflare</p>
         </div>
         <div class="d-flex gap-2">
             <form method="POST" class="d-inline">
@@ -261,7 +277,7 @@ $isVuln = ($cfg['lab_mode'] === 'vulnerable');
                         </div>
                         <div class="form-check form-switch mb-2">
                             <input class="form-check-input" type="checkbox" name="rate_limit_enabled" id="swRate" <?= $cfg['rate_limit_enabled'] ? 'checked' : '' ?>>
-                            <label class="form-check-label" for="swRate">Bật giới hạn tần suất (Mặc định: 10 lần/1 phút → khóa 10 phút)</label>
+                            <label class="form-check-label" for="swRate">Bật giới hạn tần suất (Mặc định: 200 lần/1 phút → khóa 10 phút)</label>
                         </div>
                         <div class="form-check form-switch mb-2">
                             <input class="form-check-input" type="checkbox" name="otp_enabled" id="swOtp" <?= $cfg['otp_enabled'] ? 'checked' : '' ?>>
@@ -314,8 +330,11 @@ $isVuln = ($cfg['lab_mode'] === 'vulnerable');
                                 <div class="alert alert-danger py-1 px-2 small mb-2"><strong>Lỗi CSDL rò rỉ:</strong> <?= htmlspecialchars($sandboxOutput['error']) ?></div>
                             <?php endif; ?>
                             <?php if (!empty($sandboxOutput['decoy'])): ?>
-                                <div class="alert alert-info py-1 px-2 small mb-2">
-                                    <strong>Chú thích:</strong> Hệ thống đã trả về <strong>HTTP 200 OK</strong> với dữ liệu giả lập bên dưới để đối phương tưởng đã lấy được kết quả và dừng dò quét, trong khi CSDL thật không hề bị chạm tới.
+                                <div class="alert alert-info py-2 px-3 small mb-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+                                    <div>
+                                        <strong>Chú thích:</strong> Hệ thống đã trả về <strong>HTTP 200 OK</strong> với dữ liệu giả lập (kèm file <code>.sql / .csv / .json</code> để hacker tải về) khiến đối phương tưởng đã xâm nhập thành công, trong khi CSDL thật không hề bị chạm tới.
+                                    </div>
+                                    <a href="security_dashboard.php?preview_decoy=1" target="_blank" class="btn btn-sm btn-primary">Mở giao diện Nghi binh 200 OK</a>
                                 </div>
                             <?php endif; ?>
                             <div class="table-responsive">
@@ -348,6 +367,7 @@ $isVuln = ($cfg['lab_mode'] === 'vulnerable');
                         <a href="/shopweb/quantri/editsp.php?id=3" target="_blank" class="btn btn-sm btn-outline-dark">Sửa sản phẩm theo ID</a>
                         <a href="/shopweb/fontend/search_results.php?q=ao" target="_blank" class="btn btn-sm btn-outline-dark">Tìm kiếm Trang chủ (HTML)</a>
                         <a href="/shopweb/xacthuc/login_demo.php" target="_blank" class="btn btn-sm btn-outline-dark">Demo Login Khách</a>
+                        <a href="security_dashboard.php?preview_decoy=1" target="_blank" class="btn btn-sm btn-outline-primary">Xem trước Nghi binh 200 OK</a>
                     </div>
                 </div>
             </div>

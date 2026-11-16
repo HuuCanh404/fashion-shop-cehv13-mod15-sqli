@@ -3,11 +3,13 @@
  * security_defense.php - Defense-in-Depth Middleware for fashion-shop
  *
  * Layer 1: Parameterized Query Helpers & Strict Input Casting
- * Layer 2: Sliding-Window Rate Limiting (Default: 10 requests / 60s -> 600s cooldown)
+ * Layer 2: Sliding-Window Rate Limiting (Default: 200 requests / 60s -> 600s cooldown)
  * Layer 2b: Step-up OTP Challenge Simulation & Verification
  * Layer 3: Deceptive HTTP 200 OK Response Handling against Automated Scanners
  * Layer 4: Cloudflare Edge IP Resolution (CF-Connecting-IP) & Audit Telemetry
  */
+
+require_once __DIR__ . '/decoy_templates.php';
 
 class SecurityDefense {
     private const CONFIG_PATH = __DIR__ . '/defense_config.json';
@@ -25,6 +27,7 @@ class SecurityDefense {
         '/\b(information_schema|load_file|into\s+outfile|into\s+dumpfile)\b/i',
         '/(--(\s|$)|#|\/\*)/',
         '/\b(or|and)\s+[\'"]?(\d+|true)[\'"]?\s*=\s*[\'"]?(\d+|true)[\'"]?/i',
+        '/\'\s*(or|and)\s+[\'"]?[a-zA-Z0-9_]+[\'"]?\s*=\s*[\'"]?[a-zA-Z0-9_]+[\'"]?/i',
         '/\b(or|and)\s+[\'"]?[a-zA-Z0-9_]+[\'"]?\s*=\s*[\'"]?[a-zA-Z0-9_]+[\'"]?\s*(--|#)/i',
         '/\border\s+by\s+\d+\b/i',
         '/\bgroup_concat\s*\(/i'
@@ -36,7 +39,7 @@ class SecurityDefense {
             'enforce_admin_auth' => true,
             'rate_limit_enabled' => true,
             'rate_limit_window_sec' => 60,
-            'rate_limit_max_requests' => 10,
+            'rate_limit_max_requests' => 200,
             'rate_limit_cooldown_sec' => 600,
             'otp_enabled' => true,
             'deception_enabled' => true,
@@ -133,7 +136,7 @@ class SecurityDefense {
 
         $client_ip = self::getClientIp();
 
-        // Layer 2: Sliding-Window Rate Limiting (default 10 requests / 60s -> 600s block)
+        // Layer 2: Sliding-Window Rate Limiting (default 200 requests / 60s -> 600s block)
         if (!empty($cfg['rate_limit_enabled'])) {
             $rate_check = self::checkRateLimit($client_ip);
             if (!$rate_check['allowed']) {
@@ -142,8 +145,9 @@ class SecurityDefense {
             }
         }
 
-        // Layer 3: Deceptive HTTP 200 Scanner Neutralization
-        if (!empty($cfg['deception_enabled'])) {
+        // Layer 3: Deceptive HTTP 200 Scanner Neutralization & Fake Export Trap (active only when Hardened + Deception enabled)
+        if (($cfg['lab_mode'] ?? 'hardened') === 'hardened' && !empty($cfg['deception_enabled'])) {
+            self::handleDecoyExportRequest();
             self::inspectAndDeceive();
         }
     }
@@ -191,7 +195,7 @@ class SecurityDefense {
     public static function checkRateLimit(string $ip): array {
         $cfg = self::getConfig();
         $window_sec = (int)($cfg['rate_limit_window_sec'] ?? 60);
-        $max_requests = (int)($cfg['rate_limit_max_requests'] ?? 10);
+        $max_requests = (int)($cfg['rate_limit_max_requests'] ?? 200);
         $cooldown_sec = (int)($cfg['rate_limit_cooldown_sec'] ?? 600);
 
         $file = self::getStorageDir() . '/rate_' . md5($ip) . '.json';
@@ -351,6 +355,52 @@ class SecurityDefense {
     }
 
     /**
+     * Serve realistic fake export dumps (.sql, .csv, .json) when an attacker interacts with the HTTP 200 decoy UI
+     */
+    public static function handleDecoyExportRequest(): void {
+        if (!isset($_GET['sys_export'])) {
+            return;
+        }
+        $format = strtolower(trim((string)$_GET['sys_export']));
+        if (!in_array($format, ['sql', 'csv', 'json'], true)) {
+            return;
+        }
+
+        $client_ip = self::getClientIp();
+        self::logSecurityIncident(
+            $client_ip,
+            "SQLI_DECEPTION_EXPORT: Đối tượng đã tải xuống tệp dữ liệu nghi binh định dạng .{$format}."
+        );
+
+        self::emitDecoyExport($format);
+        exit;
+    }
+
+    public static function emitDecoyExport(string $format): void {
+        usleep(rand(40000, 75000));
+        http_response_code(200);
+        header("X-Content-Type-Options: nosniff");
+        header("X-Protection-System: Deceptive-Decoy-Active");
+
+        if ($format === 'sql') {
+            header("Content-Type: application/sql; charset=utf-8");
+            header('Content-Disposition: attachment; filename="shopdb_production_backup_2026.sql"');
+            echo SecurityDecoyTemplates::renderSqlDump();
+            return;
+        }
+        if ($format === 'csv') {
+            header("Content-Type: text/csv; charset=utf-8");
+            header('Content-Disposition: attachment; filename="users_admin_credentials_export.csv"');
+            echo SecurityDecoyTemplates::renderCsvDump();
+            return;
+        }
+
+        header("Content-Type: application/json; charset=utf-8");
+        header('Content-Disposition: attachment; filename="customers_orders_secrets_dump.json"');
+        echo SecurityDecoyTemplates::renderJsonDump();
+    }
+
+    /**
      * Layer 3: Deceptive HTTP 200 Scanner Neutralization
      */
     public static function inspectAndDeceive(): void {
@@ -376,10 +426,12 @@ class SecurityDefense {
         }
 
         $matched_pattern = null;
+        $matched_input = '';
         foreach ($inputs_to_check as $val) {
             $pattern = self::matchSqliPattern((string)$val);
             if ($pattern !== null) {
                 $matched_pattern = $pattern;
+                $matched_input = (string)$val;
                 break;
             }
         }
@@ -401,62 +453,31 @@ class SecurityDefense {
             $accept = $_SERVER['HTTP_ACCEPT'] ?? '';
             if (strpos($accept, 'application/json') !== false) {
                 header("Content-Type: application/json; charset=utf-8");
+                $ds = SecurityDecoyTemplates::getDataset();
                 echo json_encode([
                     "status" => "success",
                     "authenticated" => false,
-                    "records" => [
-                        ["id" => 101, "name" => "SWE Sample Tee", "status" => "verified"],
-                        ["id" => 102, "name" => "SWE Standard Hoodie", "status" => "verified"]
+                    "database" => $ds['meta']['database'],
+                    "total_rows" => $ds['meta']['total_users'],
+                    "records" => array_slice($ds['users'], 0, 5),
+                    "export_endpoints" => [
+                        "sql" => "?sys_export=sql",
+                        "csv" => "?sys_export=csv",
+                        "json" => "?sys_export=json"
                     ],
-                    "message" => "Yêu cầu đã được ghi nhận và xử lý thành công."
+                    "message" => "Truy vấn hoàn tất. Đã trả về tập dữ liệu phù hợp."
                 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
                 exit;
             }
 
             header("Content-Type: text/html; charset=UTF-8");
-            echo self::generateDecoyHtml();
+            echo self::generateDecoyHtml($matched_input, $raw_uri);
             exit;
         }
     }
 
-    public static function generateDecoyHtml(): string {
-        return '<!DOCTYPE html>
-<html lang="vi">
-<head>
-    <meta charset="UTF-8">
-    <title>Fashion Shop - Hệ thống quản lý</title>
-    <link href="/shopweb/quantri/css/styles.css" rel="stylesheet">
-    <style>
-        body{font-family:Segoe UI,Arial,sans-serif;background:#f4f6f9;margin:0;padding:32px;color:#2c3e50}
-        .card{max-width:680px;margin:0 auto;background:#fff;border:1px solid #d5dbdb;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,.06);overflow:hidden}
-        .card-header{padding:14px 20px;border-bottom:1px solid #e5e8e8;background:#f8f9fa;font-weight:700;color:#1b4f72}
-        .card-body{padding:20px}
-        .alert-success{background:#eafaf1;border:1px solid #a9dfbf;color:#145a32;padding:10px 14px;border-radius:6px;margin-bottom:16px}
-        table{width:100%;border-collapse:collapse;margin-bottom:16px}
-        th,td{border:1px solid #d5dbdb;padding:9px 12px;text-align:left;font-size:14px}
-        th{background:#f2f4f4;font-weight:600}
-        .btn-secondary{display:inline-block;padding:8px 14px;background:#5d6d7e;color:#fff;text-decoration:none;border-radius:5px;font-size:13px}
-    </style>
-</head>
-<body class="bg-light">
-    <div class="container-fluid py-4">
-        <div class="card shadow mb-4">
-            <div class="card-header py-3 bg-white">Thông tin hệ thống</div>
-            <div class="card-body">
-                <div class="alert alert-success">Truy vấn hoàn tất. Hệ thống đã ghi nhận dữ liệu hợp lệ.</div>
-                <table class="table table-bordered">
-                    <thead><tr><th>Mã</th><th>Danh mục</th><th>Trạng thái</th></tr></thead>
-                    <tbody>
-                        <tr><td>101</td><td>Sản phẩm tiêu chuẩn</td><td>Hoàn tất</td></tr>
-                        <tr><td>102</td><td>Tài khoản khách mẫu</td><td>Đã xác nhận</td></tr>
-                    </tbody>
-                </table>
-                <a href="/shopweb/index.php" class="btn btn-secondary">Quay lại trang chủ</a>
-            </div>
-        </div>
-    </div>
-</body>
-</html>';
+    public static function generateDecoyHtml(string $matchedInput = '', string $requestUri = ''): string {
+        return SecurityDecoyTemplates::renderHtml($matchedInput, $requestUri);
     }
 
     /**

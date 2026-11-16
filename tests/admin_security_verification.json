@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-11-13T13:12:44Z",
+  "timestamp": "2026-11-16T10:29:53Z",
   "passed_count": 10,
   "total_count": 10,
   "all_passed": true,
@@ -24,28 +24,19 @@
       "sandbox_decoy_ok": true
     },
     {
-      "test": "Layer 3 Deceptive HTTP 200 OK Neutralization (CF-Connecting-IP)",
+      "test": "Layer 3 Deceptive HTTP 200 OK Neutralization & Fake Export Trap (CF-Connecting-IP)",
       "passed": true,
       "status": 200,
       "decoy_header": true,
-      "elapsed_sec": 0.0647
+      "decoy_ui_ok": true,
+      "exports_ok": true,
+      "elapsed_sec": 0.0877
     },
     {
-      "test": "Layer 2 Sliding-Window Rate Limit (10 req/60s -> 600s block)",
+      "test": "Layer 2 Sliding-Window Rate Limit (200 req/60s -> 600s block)",
       "passed": true,
-      "statuses": [
-        200,
-        200,
-        200,
-        200,
-        200,
-        200,
-        200,
-        200,
-        200,
-        200,
-        429
-      ],
+      "allowed_first_200": 200,
+      "status_201st": 429,
       "retry_after": 600
     },
     {
@@ -63,7 +54,8 @@
     {
       "test": "Admin Login Vulnerable Lab Demonstration Flow",
       "passed": true,
-      "status": 302
+      "status": 302,
+      "location": "/shopweb/quantri/index.php"
     },
     {
       "test": "Vulnerable User Login -> Admin Privilege Escalation & Storefront Search Lab",
@@ -76,7 +68,9 @@
       "test": "Hardened User Portal (Signed Cookie, Role Separation & Storefront Search Defense)",
       "passed": true,
       "cookie_blocked": true,
+      "no_admin_link": true,
       "admin_portal_blocked": true,
+      "user_sqli_decoy_ok": true,
       "search_ok": 200,
       "search_decoy_header": "Deceptive-Decoy-Active"
     }

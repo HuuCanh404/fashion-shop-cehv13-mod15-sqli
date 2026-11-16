@@ -5,8 +5,8 @@ Verifies:
 1. Admin authentication guard (302 redirect when unauthenticated in hardened mode)
 2. Hardened admin_login.php + Step-up 6-digit OTP verification flow
 3. Admin Security Dashboard (security_dashboard.php) rendering & sandbox controls
-4. Layer 3 Deceptive HTTP 200 OK response against SQLi signatures
-5. Layer 2 Sliding-window rate limiting (10 requests / 60s -> 600s cooldown, CF-Connecting-IP aware)
+4. Layer 3 Deceptive HTTP 200 OK response & fake export downloads (.sql/.csv/.json) against SQLi signatures
+5. Layer 2 Sliding-window rate limiting (200 requests / 60s -> 600s cooldown, CF-Connecting-IP aware)
 6. Toggleable Vulnerable Lab mode on Admin endpoints (restored back to hardened afterward)
 """
 
@@ -63,7 +63,7 @@ def run_all():
             "enforce_admin_auth": True,
             "rate_limit_enabled": True,
             "rate_limit_window_sec": 60,
-            "rate_limit_max_requests": 10,
+            "rate_limit_max_requests": 200,
             "rate_limit_cooldown_sec": 600,
             "otp_enabled": True,
             "deception_enabled": True,
@@ -154,26 +154,54 @@ def run_all():
             "sandbox_decoy_ok": sandbox_decoy_ok,
         })
 
-        # 4. Layer 3 Deceptive HTTP 200 OK on public/admin endpoint probe
+        # 4. Layer 3 Deceptive HTTP 200 OK on public/admin endpoint probe + Fake Export Downloads
         s_dec, hdr_dec, b_dec, elapsed_dec = send_req(
             opener_no_redir,
             f"{BASE_URL}/quantri/editsp.php?id=" + urllib.parse.quote("1 UNION SELECT 1,2,3 -- "),
             headers={"CF-Connecting-IP": "198.51.100.22"},
         )
         decoy_hdr = hdr_dec.get("X-Protection-System", "") == "Deceptive-Decoy-Active"
+        decoy_ui_ok = (
+            "sys_export=sql" in b_dec
+            and "sys_export=csv" in b_dec
+            and "sys_export=json" in b_dec
+            and "shopdb" in b_dec
+        )
+        s_dl_sql, h_dl_sql, b_dl_sql, _ = send_req(
+            opener_no_redir,
+            f"{BASE_URL}/quantri/editsp.php?sys_export=sql",
+            headers={"CF-Connecting-IP": "198.51.100.22"},
+        )
+        s_dl_csv, h_dl_csv, b_dl_csv, _ = send_req(
+            opener_no_redir,
+            f"{BASE_URL}/quantri/editsp.php?sys_export=csv",
+            headers={"CF-Connecting-IP": "198.51.100.22"},
+        )
+        s_dl_json, h_dl_json, b_dl_json, _ = send_req(
+            opener_no_redir,
+            f"{BASE_URL}/quantri/editsp.php?sys_export=json",
+            headers={"CF-Connecting-IP": "198.51.100.22"},
+        )
+        exports_ok = (
+            s_dl_sql == 200 and "attachment" in h_dl_sql.get("Content-Disposition", "") and "INSERT INTO `users`" in b_dl_sql
+            and s_dl_csv == 200 and "attachment" in h_dl_csv.get("Content-Disposition", "") and "password_hash" in b_dl_csv
+            and s_dl_json == 200 and "attachment" in h_dl_json.get("Content-Disposition", "") and "system_config" in b_dl_json
+        )
         results.append({
-            "test": "Layer 3 Deceptive HTTP 200 OK Neutralization (CF-Connecting-IP)",
-            "passed": s_dec == 200 and decoy_hdr and "SQL Error" not in b_dec,
+            "test": "Layer 3 Deceptive HTTP 200 OK Neutralization & Fake Export Trap (CF-Connecting-IP)",
+            "passed": s_dec == 200 and decoy_hdr and decoy_ui_ok and exports_ok and "SQL Error" not in b_dec,
             "status": s_dec,
             "decoy_header": decoy_hdr,
+            "decoy_ui_ok": decoy_ui_ok,
+            "exports_ok": exports_ok,
             "elapsed_sec": elapsed_dec,
         })
 
-        # 5. Layer 2 Rate Limit: 10 requests allowed in 60s, 11th returns HTTP 429 with Retry-After: 600
-        test_ip = f"198.51.100.{int(time.time()) % 200 + 30}"
+        # 5. Layer 2 Rate Limit: 200 requests allowed in 60s, 201st returns HTTP 429 with Retry-After: 600
+        test_ip = f"203.0.113.{int(time.time()) % 200 + 10}"
         statuses = []
         retry_after = None
-        for i in range(11):
+        for i in range(201):
             st, h, _, _ = send_req(
                 opener_no_redir,
                 f"{BASE_URL}/quantri/admin_login.php?mode=hardened&n={i}",
@@ -182,11 +210,12 @@ def run_all():
             statuses.append(st)
             if st == 429:
                 retry_after = int(h.get("Retry-After", "0"))
-        rl_passed = all(s == 200 for s in statuses[:10]) and statuses[10] == 429 and (590 <= (retry_after or 0) <= 600)
+        rl_passed = all(s == 200 for s in statuses[:200]) and statuses[200] == 429 and (590 <= (retry_after or 0) <= 600)
         results.append({
-            "test": "Layer 2 Sliding-Window Rate Limit (10 req/60s -> 600s block)",
+            "test": "Layer 2 Sliding-Window Rate Limit (200 req/60s -> 600s block)",
             "passed": rl_passed,
-            "statuses": statuses,
+            "allowed_first_200": sum(1 for s in statuses[:200] if s == 200),
+            "status_201st": statuses[200] if len(statuses) > 200 else None,
             "retry_after": retry_after,
         })
 
@@ -243,22 +272,27 @@ def run_all():
             "probe_header": h_pd_probe.get("X-Protection-System", ""),
         })
 
-        # 8. Vulnerable Admin Login Demo exposes concatenated SQL preview only when ?mode=vulnerable
+        # 8. Vulnerable Admin Login Demo redirects straight to /quantri/index.php with no decoy when ?mode=vulnerable
         with open(DEFENSE_CFG_PATH, "w", encoding="utf-8") as f:
             json.dump(vuln_cfg, f, indent=2)
-        s_al_v, _, b_al_v, _ = send_req(
+        s_al_v, h_al_v, _, _ = send_req(
             opener_no_redir,
             f"{BASE_URL}/quantri/admin_login.php?mode=vulnerable",
             method="POST",
             data={"username": "' OR '1'='1' #", "password": "x"},
             headers={"CF-Connecting-IP": "198.51.100.122"},
         )
-        # Verify both redirect to dashboard in vulnerable mode
-        al_vuln_ok = s_al_v == 302
+        al_loc = h_al_v.get("Location", "")
+        al_vuln_ok = (
+            s_al_v == 302
+            and "/quantri/index.php" in al_loc
+            and h_al_v.get("X-Protection-System", "") == ""
+        )
         results.append({
             "test": "Admin Login Vulnerable Lab Demonstration Flow",
             "passed": al_vuln_ok,
             "status": s_al_v,
+            "location": al_loc,
         })
 
         # 9. User Login -> Admin Escalation in Vulnerable Lab Mode (SQLi & Storefront Search)
@@ -308,6 +342,7 @@ def run_all():
             f"{BASE_URL}/xacthuc/login.php",
             headers={"CF-Connecting-IP": "198.51.100.133"},
         )
+        no_admin_link = ("/quantri/admin_login.php" not in b_u_get) and ("Cổng Quản trị Admin" not in b_u_get)
         u_csrf_m = re.search(r'name="csrf_token"\s+value="([a-f0-9]+)"', b_u_get)
         u_csrf = u_csrf_m.group(1) if u_csrf_m else ""
         s_u_adm_blk, _, b_u_adm_blk, _ = send_req(
@@ -317,7 +352,21 @@ def run_all():
             data={"csrf_token": u_csrf, "username": "admin_demo", "password": "Admin@123"},
             headers={"CF-Connecting-IP": "198.51.100.133"},
         )
-        admin_portal_blocked = s_u_adm_blk == 200 and "Cổng Admin riêng" in b_u_adm_blk
+        admin_portal_blocked = (
+            s_u_adm_blk == 200
+            and "Cổng Admin riêng" in b_u_adm_blk
+            and "/quantri/admin_login.php" not in b_u_adm_blk
+        )
+
+        # Verify deception HTTP 200 triggers on User Login SQLi ONLY when protection is active
+        _, h_u_decoy, _, _ = send_req(
+            opener_no_redir,
+            f"{BASE_URL}/xacthuc/login.php",
+            method="POST",
+            data={"csrf_token": u_csrf, "username": "' OR role='admin' #", "password": "x"},
+            headers={"CF-Connecting-IP": "198.51.100.136"},
+        )
+        user_sqli_decoy_ok = h_u_decoy.get("X-Protection-System") == "Deceptive-Decoy-Active"
 
         s_sr_ok, _, b_sr_ok, _ = send_req(
             opener_no_redir,
@@ -331,9 +380,11 @@ def run_all():
         )
         results.append({
             "test": "Hardened User Portal (Signed Cookie, Role Separation & Storefront Search Defense)",
-            "passed": cookie_blocked and admin_portal_blocked and s_sr_ok == 200 and "Deprecated" not in b_sr_ok and h_sr_decoy.get("X-Protection-System") == "Deceptive-Decoy-Active",
+            "passed": cookie_blocked and no_admin_link and admin_portal_blocked and user_sqli_decoy_ok and s_sr_ok == 200 and "Deprecated" not in b_sr_ok and h_sr_decoy.get("X-Protection-System") == "Deceptive-Decoy-Active",
             "cookie_blocked": cookie_blocked,
+            "no_admin_link": no_admin_link,
             "admin_portal_blocked": admin_portal_blocked,
+            "user_sqli_decoy_ok": user_sqli_decoy_ok,
             "search_ok": s_sr_ok,
             "search_decoy_header": h_sr_decoy.get("X-Protection-System", ""),
         })

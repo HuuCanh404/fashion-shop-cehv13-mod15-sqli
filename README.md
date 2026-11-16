@@ -33,8 +33,11 @@ fashion-shop-cehv13-mod15-sqli/
 │   ├── verify_admin_security.py           # Bộ kiểm thử HTTP tự động 10 kịch bản
 │   └── admin_security_verification.json   # Bằng chứng kết quả đạt 10/10 kịch bản
 └── docs/
-    ├── academic_report_fashion_shop.docx  # Báo cáo Word tham khảo (28 trang, Times New Roman)
-    └── presentation_fashion_shop.pptx     # Slide thuyết trình (14 trang)
+    ├── academic_report_fashion_shop.docx          # Báo cáo Word tham khảo (Times New Roman + 3 sơ đồ Figma)
+    ├── academic_report_fashion_shop_16trang.docx  # Báo cáo Word hoàn chỉnh mở rộng đúng 16 trang (3.157 từ)
+    ├── canva_fashion_shop.pptx                    # Slide thuyết trình xuất từ Canva (11 trang nền trắng)
+    ├── diagrams/                                  # 3 sơ đồ kiến trúc/tấn công/phòng thủ dựng bằng Figma
+    └── presentation_fashion_shop.pptx             # Slide thuyết trình đồng bộ cục bộ (11 trang nền trắng)
 ```
 
 ---
@@ -49,9 +52,9 @@ fashion-shop-cehv13-mod15-sqli/
 
 ### Chế độ `Hardened 4-Layer` (Khiên bảo vệ kích hoạt đồng bộ)
 1. **Lớp 1 — Vá tận gốc mã nguồn**: Chuẩn hóa `executePrepared()` (`mysqli_prepare` + `bind_param`), mật khẩu `password_verify()`, `AuthGuard` bắt buộc `role === 'admin'`, tách cổng chặn `admin` ở `xacthuc/login.php`, ký `remember_user` bằng `HMAC-SHA256` (`HttpOnly`), đóng token hết hạn tại `reset_password.php`, ẩn lỗi SQL `$conn->error`.
-2. **Lớp 2 — Giới hạn tốc độ & OTP 6 chữ số**: Cửa sổ trượt tối đa `10 yêu cầu / 60 giây` theo IP; vi phạm trả `HTTP 429 Too Many Requests` (`Retry-After: 600`, khóa 10 phút). Đăng nhập Admin yêu cầu thêm mã OTP 6 chữ số dùng một lần.
+2. **Lớp 2 — Giới hạn tốc độ & OTP 6 chữ số**: Cửa sổ trượt tối đa `200 yêu cầu / 60 giây` theo IP; vi phạm trả `HTTP 429 Too Many Requests` (`Retry-After: 600`, khóa 10 phút). Đăng nhập Admin yêu cầu thêm mã OTP 6 chữ số dùng một lần.
 3. **Lớp 3 — Nhận diện IP thực sau Cloudflare WAF (`CF-Connecting-IP`)**: Bật `cloudflare_mode` ưu tiên đọc `HTTP_CF_CONNECTING_IP` để tránh khóa nhầm IP nút Proxy và hỗ trợ đối chiếu chặn dải IP ở tầng mạng/ISP.
-4. **Lớp 4 — Chiến thuật Nghi binh `HTTP 200 OK`**: Khi phát hiện dấu hiệu SQLi (`UNION SELECT`, `' OR`, `--`, `#`, `SLEEP(`, `BENCHMARK(`...), ngắt xử lý trước khi tới MariaDB và trả về trang giả mạo `HTTP 200 OK` sạch kèm header `X-Protection-System: Deceptive-Decoy-Active` trong `< 0.1s`.
+4. **Lớp 4 — Chiến thuật Nghi binh `HTTP 200 OK`**: Khi phát hiện dấu hiệu SQLi (`UNION SELECT`, `' OR`, `--`, `#`, `SLEEP(`, `BENCHMARK(`...), ngắt xử lý trước khi tới MariaDB và trả về giao diện bảng quản trị CSDL giả mạo `HTTP 200 OK` (kèm các tệp dữ liệu giả `.sql`, `.csv`, `.json` cho đối tượng tấn công tải về) cùng header `X-Protection-System: Deceptive-Decoy-Active` trong `< 0.1s`.
 
 ---
 

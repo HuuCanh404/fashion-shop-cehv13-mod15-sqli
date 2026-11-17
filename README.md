@@ -33,11 +33,9 @@ fashion-shop-cehv13-mod15-sqli/
 │   ├── verify_admin_security.py           # Bộ kiểm thử HTTP tự động 10 kịch bản
 │   └── admin_security_verification.json   # Bằng chứng kết quả đạt 10/10 kịch bản
 └── docs/
-    ├── academic_report_fashion_shop.docx          # Báo cáo Word đầy đủ (18 trang nội dung 1–18, 23 trang tổng cộng, 6.576 từ)
-    ├── academic_report_fashion_shop_18trang.docx  # Bản đồng bộ cùng nội dung (18 trang nội dung, Times New Roman + 3 sơ đồ Figma)
-    ├── canva_fashion_shop.pptx                    # Slide thuyết trình xuất từ Canva (11 trang nền trắng)
-    ├── diagrams/                                  # 3 sơ đồ kiến trúc/tấn công/phòng thủ dựng bằng Figma
-    └── presentation_fashion_shop.pptx             # Slide thuyết trình đồng bộ cục bộ (11 trang nền trắng)
+    ├── academic_report_fashion_shop.docx  # Báo cáo Word đầy đủ (18 trang nội dung 1–18, 23 trang tổng cộng, 6.576 từ)
+    ├── diagrams/                          # 3 sơ đồ kiến trúc/tấn công/phòng thủ dựng bằng Figma
+    └── presentation_fashion_shop.pptx     # Slide thuyết trình (11 trang nền trắng, đồng bộ với Figma)
 ```
 
 ---
